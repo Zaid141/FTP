@@ -7,11 +7,25 @@
 #include <stdlib.h>
 #include <sys/time.h>
 #include <sys/select.h>
+#include <errno.h>
+
+#include <sys/stat.h>
+#include <dirent.h>
 
 #define CPORT 21
 
 int main()
 {
+	char *filepath = strdup("../server/bob/images");
+	
+	printf("path main: %s\n", filepath); // debugging
+
+	int auth[260]; // determines whether a user at fd = i is authenticated or not
+	for (int i = 0; i < sizeof(auth); i++)
+	{
+		auth[i] = 0;
+	}
+
 	// initializing with usernames and passwords from users.csv
 	char *usernames[256];
 	char *passwords[256];
@@ -34,24 +48,24 @@ int main()
 		token = strtok(row, ",");
 		if (token != NULL)
 		{
-			usernames[i] = strdup(token); //so that usernames[i] isn't just an alias for token but actually the value of token
+			usernames[i] = strdup(token); // so that usernames[i] isn't just an alias for token but actually the value of token
 			usersize++;
 		}
 
 		token = strtok(NULL, ",");
 		if (token != NULL)
 		{
-			passwords[i] = strdup(token); 
+			passwords[i] = strdup(token);
 		}
 
-		//printf("username(%d) = %s , password = %s \n", i, usernames[i], passwords[i]); //debug purposes
+		// printf("username(%d) = %s , password = %s \n", i, usernames[i], passwords[i]); //debug purposes
 
 		i++;
 	}
 	fclose(fptr);
 
 	int server_socket = socket(AF_INET, SOCK_STREAM, 0);
-	//printf("Server fd = %d \n", server_socket);
+	// printf("Server fd = %d \n", server_socket);
 
 	// check for fail error
 	if (server_socket < 0)
@@ -90,6 +104,44 @@ int main()
 		exit(EXIT_FAILURE);
 	}
 
+	int data_socket;
+	data_socket = socket(AF_INET, SOCK_STREAM, 0);
+
+	// check for fail error
+	if (data_socket == -1)
+	{
+		printf("socket creation failed..\n");
+		exit(EXIT_FAILURE);
+	}
+
+	// setsock
+	// int value = 1;
+	setsockopt(data_socket, SOL_SOCKET, SO_REUSEADDR, &value, sizeof(value)); //&(int){1},sizeof(int)
+
+	// define data server address structure
+	struct sockaddr_in data_address;
+	bzero(&data_address, sizeof(data_address));
+	data_address.sin_family = AF_INET;
+	data_address.sin_port = htons(20); // on port 20
+	data_address.sin_addr.s_addr = INADDR_ANY;
+
+	if (bind(data_socket,
+			 (struct sockaddr *)&data_address,
+			 sizeof(data_address)) < 0)
+	{
+		printf("socket bind failed..\n");
+		printf("Error code: %d\n", errno);
+		exit(EXIT_FAILURE);
+	}
+
+	// after it is bound, we can listen for connections with a queue length of 5
+	if (listen(data_socket, 5) < 0)
+	{
+		printf("Listen failed..\n");
+		close(data_socket);
+		exit(EXIT_FAILURE);
+	}
+
 	// DECLARE 2 fd sets (file descriptor sets : a collection of file descriptors)
 	fd_set all_sockets;
 	fd_set ready_sockets;
@@ -101,12 +153,12 @@ int main()
 	my server socket is equal to 3, and I have one client, so that's 4, so this way we're only going to have to go up to
 	4 each time (instead of the 1024)
 	*/
-	int max_socket_so_far = server_socket;
+	int max_socket_so_far = server_socket; // need to change to data_socket
 
 	FD_ZERO(&all_sockets);
-	FD_SET(server_socket, &all_sockets);
+	FD_SET(server_socket, &all_sockets); // fdset data_socket
 
-	//printf("Server is listening...\n");
+	// printf("Server is listening...\n");
 
 	while (1)
 	{
@@ -130,12 +182,11 @@ int main()
 				if (fd == server_socket)
 				{
 					int client_sd = accept(server_socket, (struct sockaddr *)&client_address,
-			&addr_size);
+										   &addr_size);
 					printf("Connection established with user %d \n", client_sd);
 					printf("Their port: %d\n\n", ntohs(client_address.sin_port));
 
 					send(client_sd, "220 Service ready for new user.", 32, 0);
-
 
 					FD_SET(client_sd, &all_sockets);
 
@@ -151,26 +202,25 @@ int main()
 					if (bytes == 0) // client has closed the connection
 					{
 						printf("connection closed from client side \n");
-
+						auth[fd] = 0;
 						close(fd);
 
 						FD_CLR(fd, &all_sockets);
 					}
-					//printf("%s \n", buffer); //debug purposes
+					// printf("%s \n", buffer); //debug purposes
 
-					char substring[6]; //to store the commands from user like PASS, RETR etc.
+					char substring[6]; // to store the commands from user like PASS, RETR etc.
 					for (int i = 0; i < 5; i++)
 					{
 						substring[i] = buffer[i];
 					}
 					substring[5] = '\0';
-					//printf("%s ,\n", substring); //debug
+					printf("SUBSTRING: %s\n", substring); // debug
 
-					if (!strncmp("USER", substring,4))
+					if (!strncmp("USER", substring, 4))
 					{
-						
 
-						char argument[256]; //to store the arguments from user input
+						char argument[256]; // to store the arguments from user input
 						bzero(argument, sizeof(argument));
 						for (int i = 5; i < strlen(buffer); i++)
 						{
@@ -182,13 +232,12 @@ int main()
 						// 	printf("%c", argument[i]);
 						// }
 
-						
 						int found = -1;
 						for (int i = 0; i < usersize; i++)
 						{
-							if (!strcmp(argument, usernames[i])) //username found
+							if (!strcmp(argument, usernames[i])) // username found
 							{
-								//printf("found\n");	//debug purposes
+								// printf("found\n");	//debug purposes
 								found = i;
 								break;
 							}
@@ -218,27 +267,294 @@ int main()
 								if (!strcmp(argument, passwords[found]))
 								{
 									printf("Successful login\n\n");
-
+									auth[fd] = 1; // client is now authorized
 									send(fd, "230 User logged in, proceed.", 29, 0);
 								}
 								else
 								{
+									auth[fd] = 0;						   // client is not authorized
 									send(fd, "530 Not logged in.", 38, 0); // password content wrong
 								}
 							}
 							else
 							{
+								auth[fd] = 0;						   // client is not authorized
 								send(fd, "530 Not logged in.", 30, 0); // user sent some command other than PASS (maybe can be considered as "503 Bad sequence of commands.")
 							}
 						}
 						else
 						{
-							send(fd, "530 Not logged in.", 19, 0);  //user not found
+							auth[fd] = 0;						   // client is not authorized
+							send(fd, "530 Not logged in.", 19, 0); // user not found
 						}
 					}
 					else if (!strcmp("PASS ", substring))
 					{
+						auth[fd] = 0;						   // client is not authorized
 						send(fd, "530 Not logged in.", 19, 0); // sent PASS before USER
+					}
+					else if (!strncmp("PORT", substring, 4))
+					{
+						if (auth[fd])
+						{
+							send(fd, "230 User logged in", 19, 0);
+							char argument[256]; // to store the arguments from user input
+							bzero(argument, sizeof(argument));
+							for (int i = 5; i < strlen(buffer); i++)
+							{
+								argument[i - 5] = buffer[i];
+							}
+							argument[strlen(buffer)] = '\0';
+
+							printf("Port received: %s\n\n", argument);
+
+							// char *ip;
+							// char *port;
+
+							// char *token = strtok(argument, ":");
+							// if (token == NULL)
+							// {
+							// 	fprintf(stderr, "Invalid address format\n");
+							// 	return 1;
+							// }
+							// ip = token;
+
+							// token = strtok(NULL, ":");
+							// if (token == NULL)
+							// {
+							// 	fprintf(stderr, "Invalid address format\n");
+							// 	return 1;
+							// }
+							// port = token;
+
+							// int portnum = atoi(port);
+
+							printf("File okay, beginning data connections\n\n");
+							// printf("Their port: %d\n\n", ntohs(client_address.sin_port));  //debugging
+
+							send(fd, "200 PORT command successful", 28, 0);
+
+							send(fd, "150 File status okay; about to open data connection", 52, 0);
+
+							int client_socket = accept(
+								data_socket, (struct sockaddr *)&client_address,
+								&addr_size);
+
+							printf("after accept\n"); // debugging
+
+							pid_t pid = fork();
+							if (pid < 0)
+							{
+								perror("fork failed");
+								exit(EXIT_FAILURE);
+							}
+							else if (pid == 0) // Child process
+							{
+								// Handle data connection here
+								bzero(buffer, sizeof(buffer));
+								int bytes = recv(client_socket, buffer, sizeof(buffer), 0); // receive actual command after port
+								if (bytes == 0)												// client has closed the connection
+								{
+									printf("connection closed from client side \n");
+									auth[fd] = 0;
+									close(fd);
+
+									FD_CLR(fd, &all_sockets);
+								}
+								printf("buffer: %s\n", buffer); // debugging
+
+								token = strtok(buffer, " ");
+								if (token == NULL)
+								{
+									fprintf(stderr, "Invalid address format\n");
+									return 1;
+								}
+								char *arg1 = token;
+								char *filename;
+
+								printf("arg1: %s\n", arg1); // debugging
+
+								if (strncmp("STOR", arg1, 5) == 0 || strncmp("RETR", arg1, 5) == 0)
+								{
+									printf("entered stor and retr if\n"); // debugging
+									token = strtok(NULL, " ");
+									if (token == NULL)
+									{
+										fprintf(stderr, "Invalid address format\n");
+										return 1;
+									}
+									filename = token;
+									char openfile[256];
+									sprintf(openfile, "%s/%s", filepath, filename);
+									printf("arg1: %s\n", arg1); // debugging
+
+									if (strncmp("STOR", arg1, 5) == 0)
+									{
+
+										int n = 1;
+
+										bzero(buffer, sizeof(buffer));
+										recv(client_socket, buffer, 6, 0); // receive file exists or not (on client's side)
+										if (strncmp(buffer, "550 No such file or directory.", 5) == 0)
+										{
+											close(server_socket);
+											close(client_socket);
+											printf("Issue with file\n"); // debugging
+											exit(1);
+										}
+										else
+										{
+											printf("found: %s end\n", buffer); // debugging
+										}
+
+										FILE *fptr = fopen(openfile, "w");
+										if (fptr == NULL)
+										{
+											perror("[-]Error in creating file.");
+											exit(1);
+										}
+
+										int size = 0;
+										recv(client_socket, &size, sizeof(size), 0); // receive size
+										printf("size: %d\n", size);					 // debugging
+
+										while (n > 0)
+										{
+											bzero(buffer, sizeof(buffer));
+											n = recv(client_socket, buffer, sizeof(buffer), 0);
+
+											printf("%s\n", buffer); // debugging
+											fwrite(buffer, 1, n, fptr);
+										}
+
+										fclose(fptr);
+										close(client_socket);
+									}
+									else
+									{
+										printf("entered retr else\n"); // debugging
+										FILE *fptr;
+										fptr = fopen(openfile, "rb");
+										if (fptr == NULL)
+										{
+											send(client_socket, "550 No such file or directory.", 31, 0);
+											close(server_socket);
+											close(client_socket);
+											fclose(fptr);
+											printf("Issue with file\n"); // debugging
+											exit(1);
+										}
+										else
+										{
+											send(client_socket, "found", 6, 0);
+										}
+
+										struct stat st;
+										stat(openfile, &st);
+										int size = st.st_size;
+
+										printf("size: %d\n", size); // debugging
+
+										// if (send(client_socket, &size, sizeof(size), 0) == -1) // sending file size
+										// {
+										// 	perror("[-] Error in sending data");
+										// 	exit(1);
+										// }
+
+										char data[256];
+
+										int n;
+										int readsofar = 0;
+										while (readsofar != size)
+										{
+											bzero(data, sizeof(data));
+											// printf("ftell: %ld\n", ftell(fptr)); // debugging
+											n = fread(data, 1, sizeof(data), fptr);
+
+											if (n <= 0)
+											{
+												if (feof(fptr))
+												{
+													// End of file reached
+													break;
+												}
+												else
+												{
+													perror("Error reading from file");
+													exit(1);
+												}
+											}
+											readsofar += n;
+											// printf("readsofar: %d\n", readsofar);	   // debugging
+											if (send(client_socket, data, n, 0) == -1) // replace sizeofdata with n
+											{
+												perror("[-] Error in sending data");
+												exit(1);
+											}
+											// printf("ftell2: %ld\n", ftell(fptr)); //debugging
+											// printf("Content: %s\n", data); // debugging
+
+											// printf("ftell2: %ld\n", ftell(fptr)); // debugging
+										}
+										fclose(fptr);
+										close(client_socket);
+
+										// printf("Exited while\n"); // debugging
+									}
+									printf("before transfer completed\n");				  // debugging
+									if (send(fd, "226 Transfer completed.", 24, 0) == -1) // replace sizeofdata with n
+									{
+										perror("[-] Error in sending data");
+										exit(1);
+									}
+								}
+								else if (strncmp("LIST", arg1, 5) == 0)
+								{
+									DIR *d;
+									struct dirent *dir;
+									d = opendir(filepath);
+									if (d)
+									{
+										dir = readdir(d); // to purge the '.' dir
+										dir = readdir(d); // to purge the '..' dir
+										while ((dir = readdir(d)) != NULL)
+										{
+											printf("%s\n", dir->d_name);
+											if (send(client_socket, dir->d_name, 256, 0) == -1) // replace sizeofdata with n
+											{
+												perror("[-] Error in sending data");
+												close(client_socket);
+												exit(1);
+											}
+										}
+										closedir(d);
+										close(client_socket);
+									}
+									if (send(fd, "226 Transfer completed.", 24, 0) == -1) // replace sizeofdata with n
+									{
+										perror("[-] Error in sending data");
+										exit(1);
+									}
+									return (0);
+								}
+								// Close unnecessary sockets
+								close(server_socket);
+
+								// Process the data or perform file transfer operations
+
+								// Terminate the child process
+								exit(EXIT_SUCCESS);
+							}
+							else // Parent process
+							{
+								// Close the client socket in the parent process
+								close(client_socket);
+							}
+						}
+						else
+						{
+							send(fd, "530 Not logged in.", 19, 0);
+						}
 					}
 					else
 					{
