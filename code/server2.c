@@ -206,7 +206,7 @@ int main()
 					int bytes = recv(fd, buffer, sizeof(buffer), 0);
 					if (bytes == 0) // client has closed the connection
 					{
-						printf("connection closed from client side \n");
+						printf("Closed! \n");
 						auth[fd] = 0;
 						close(fd);
 
@@ -220,7 +220,7 @@ int main()
 						substring[i] = buffer[i];
 					}
 					substring[5] = '\0';
-					printf("SUBSTRING: %s\n", substring); // debug
+					//printf("SUBSTRING: %s\n", substring); // debug
 
 					if (!strncmp("USER", substring, 4))
 					{
@@ -311,7 +311,7 @@ int main()
 									}
 
 									// Now you can use filepath
-									printf("%s\n", user_filepaths[fd]);
+									//printf("%s\n", user_filepaths[fd]); //debug purposes
 
 									send(fd, "230 User logged in, proceed.", 29, 0);
 								}
@@ -348,7 +348,7 @@ int main()
 							user_filepaths[fd] = newPath; // Update to the new path
 							// Send success response...
 							char response[2048]; // Ensure the buffer is large enough for the response
-							snprintf(response, sizeof(response), "250 Directory successfully changed to %s", user_filepaths[fd]);
+							snprintf(response, sizeof(response), "200 directory changed to %s", user_filepaths[fd]);
 							send(fd, response, strlen(response), 0);
 						}
 					}
@@ -367,7 +367,7 @@ int main()
 								char response[3000];
 								snprintf(response, sizeof(response), "257 \"%s\" is the current directory.", user_filepaths[fd]);
 								// Assuming you're sending response to a client or printing it
-								printf("%s\n", response);
+								//printf("%s\n", response); //debugging
 								send(fd, response, strlen(response), 0);
 							}
 							else
@@ -394,13 +394,13 @@ int main()
 
 						if (currentUsers[fd] != NULL)
 						{ // Free memory if a username was assigned
-							//free(currentUsers[fd]);
+							// free(currentUsers[fd]);
 							currentUsers[fd] = NULL;
 						}
 
 						if (user_filepaths[fd] != NULL)
 						{ // Also free the dynamically allocated user filepath
-							//free(user_filepaths[fd]);
+							// free(user_filepaths[fd]);
 							user_filepaths[fd] = NULL;
 						}
 
@@ -451,11 +451,14 @@ int main()
 
 							send(fd, "150 File status okay; about to open data connection", 52, 0);
 
+							printf("Connecting to Client Transfer Socket... \n");
+
 							int client_socket = accept(
 								data_socket, (struct sockaddr *)&client_address,
 								&addr_size);
 
-							printf("after accept\n"); // debugging
+							printf("Connection Successful\n");
+							//printf("after accept\n"); // debugging
 
 							pid_t pid = fork();
 							if (pid < 0)
@@ -470,13 +473,13 @@ int main()
 								int bytes = recv(client_socket, buffer, sizeof(buffer), 0); // receive actual command after port
 								if (bytes == 0)												// client has closed the connection
 								{
-									printf("connection closed from client side \n");
+									printf("Closed! \n");
 									auth[fd] = 0;
 									close(fd);
 
 									FD_CLR(fd, &all_sockets);
 								}
-								printf("buffer: %s\n", buffer); // debugging
+								//printf("buffer: %s\n", buffer); // debugging
 
 								token = strtok(buffer, " ");
 								if (token == NULL)
@@ -487,11 +490,11 @@ int main()
 								char *arg1 = token;
 								char *filename;
 
-								printf("arg1: %s\n", arg1); // debugging
+								//printf("arg1: %s\n", arg1); // debugging
 
 								if (strncmp("STOR", arg1, 5) == 0 || strncmp("RETR", arg1, 5) == 0)
 								{
-									printf("entered stor and retr if\n"); // debugging
+									//printf("entered stor and retr if\n"); // debugging
 									token = strtok(NULL, " ");
 									if (token == NULL)
 									{
@@ -501,7 +504,7 @@ int main()
 									filename = token;
 									char openfile[256];
 									sprintf(openfile, "%s/%s", user_filepaths[fd], filename);
-									printf("arg1: %s\n", arg1); // debugging
+									//printf("arg1: %s\n", arg1); // debugging
 
 									if (strncmp("STOR", arg1, 5) == 0)
 									{
@@ -519,7 +522,7 @@ int main()
 										}
 										else
 										{
-											printf("found: %s end\n", buffer); // debugging
+											//printf("found: %s end\n", buffer); // debugging
 										}
 
 										FILE *fptr = fopen(openfile, "w");
@@ -531,14 +534,14 @@ int main()
 
 										int size = 0;
 										recv(client_socket, &size, sizeof(size), 0); // receive size
-										printf("size: %d\n", size);					 // debugging
+										//printf("size: %d\n", size);					 // debugging
 
 										while (n > 0)
 										{
 											bzero(buffer, sizeof(buffer));
 											n = recv(client_socket, buffer, sizeof(buffer), 0);
 
-											printf("%s\n", buffer); // debugging
+											//printf("%s\n", buffer); // debugging
 											fwrite(buffer, 1, n, fptr);
 										}
 
@@ -547,7 +550,7 @@ int main()
 									}
 									else
 									{
-										printf("entered retr else\n"); // debugging
+										//printf("entered retr else\n"); // debugging
 										FILE *fptr;
 										fptr = fopen(openfile, "rb");
 										if (fptr == NULL)
@@ -568,7 +571,7 @@ int main()
 										stat(openfile, &st);
 										int size = st.st_size;
 
-										printf("size: %d\n", size); // debugging
+										//printf("size: %d\n", size); // debugging
 
 										// if (send(client_socket, &size, sizeof(size), 0) == -1) // sending file size
 										// {
@@ -616,27 +619,32 @@ int main()
 
 										// printf("Exited while\n"); // debugging
 									}
-									printf("before transfer completed\n");				  // debugging
-									if (send(fd, "226 Transfer completed.", 24, 0) == -1) // replace sizeofdata with n
+									//printf("before transfer completed\n");				  // debugging
+									if (send(fd, "226 Transfer complete.", 24, 0) == -1) // replace sizeofdata with n
 									{
 										perror("[-] Error in sending data");
 										exit(1);
 									}
+									else
+									{
+										printf("226 Transfer complete.\n");
+									}
 								}
 								else if (strncmp("LIST", arg1, 5) == 0)
 								{
-									printf("HELLOO%s\n", user_filepaths[fd]);
+									printf("Listing directory\n");
+									//printf("HELLOO%s\n", user_filepaths[fd]);
 									DIR *d;
 									struct dirent *dir;
 									d = opendir(user_filepaths[fd]);
 									if (d)
 									{
-										printf("I AM HERE");
+										//printf("I AM HERE"); //debugging
 										dir = readdir(d); // to purge the '.' dir
 										dir = readdir(d); // to purge the '..' dir
 										while ((dir = readdir(d)) != NULL)
 										{
-											printf("%s\n", dir->d_name);
+											//printf("%s\n", dir->d_name); //debugging
 											if (send(client_socket, dir->d_name, 256, 0) == -1) // replace sizeofdata with n
 											{
 												perror("[-] Error in sending data");
@@ -651,6 +659,10 @@ int main()
 									{
 										perror("[-] Error in sending data");
 										exit(1);
+									}
+									else
+									{
+										printf("226 Transfer complete.\n");
 									}
 									return (0);
 								}

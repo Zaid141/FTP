@@ -108,9 +108,7 @@ int portcmd(int network_socket, char *address, int port, char *args, int additio
 	int value = 1;
 	setsockopt(data_socket, SOL_SOCKET, SO_REUSEADDR, &value, sizeof(value));
 
-	if (bind(data_socket, (struct sockaddr *)&client_address, sizeof(struct sockaddr_in)) == 0)
-		printf("Binded Correctly\n");
-	else
+	if (bind(data_socket, (struct sockaddr *)&client_address, sizeof(struct sockaddr_in)) != 0)
 		printf("Unable to bind\n");
 
 	// connect
@@ -128,7 +126,7 @@ int portcmd(int network_socket, char *address, int port, char *args, int additio
 	}
 	else
 	{
-		printf("PORT:: %s\n", buffer); // port command successful
+		printf("%s\n", buffer); // port command successful
 	}
 
 	// send(data_socket, buffer, sizeof(buffer),0);
@@ -141,7 +139,7 @@ int portcmd(int network_socket, char *address, int port, char *args, int additio
 	}
 	else
 	{
-		printf("FILESTATUS:: %s\n", buffer); // 150 file status okay
+		printf("%s\n", buffer); // 150 file status okay
 	}
 
 	if (strncmp(args, "RETR ", 5) == 0)
@@ -175,10 +173,10 @@ int portcmd(int network_socket, char *address, int port, char *args, int additio
 			printf("550 No such file or directory.\n"); // debugging
 			return 0;
 		}
-		else
-		{
-			printf("%s\n", buffer); // debugging
-		}
+		// else //prints 'found'
+		// {
+		// 	printf("%s\n", buffer); // debugging
+		// }
 
 		char filepath[1024];
 		sprintf(filepath,"%s/%s", localpath, filename);
@@ -200,7 +198,7 @@ int portcmd(int network_socket, char *address, int port, char *args, int additio
 			bzero(buffer, sizeof(buffer));
 			n = recv(data_socket, buffer, sizeof(buffer), 0);
 
-			printf("%s\n", buffer); // debugging
+			//printf("%s\n", buffer); // debugging (prints what was received and what will be stored)
 			fwrite(buffer, 1, n, fptr2);
 		}
 
@@ -209,7 +207,7 @@ int portcmd(int network_socket, char *address, int port, char *args, int additio
 
 		bzero(buffer, sizeof(buffer));
 		recv(network_socket, buffer, sizeof(buffer), 0);
-		printf("transfer: %s\n", buffer); // 226 transfer completed
+		printf("%s\n", buffer); // 226 Transfer complete
 	}
 	else if (strncmp(args, "STOR ", 5) == 0)
 	{
@@ -255,7 +253,7 @@ int portcmd(int network_socket, char *address, int port, char *args, int additio
 		stat(filepath, &st);
 		int size = st.st_size;
 
-		printf("size: %d\n", size); // debugging
+		//printf("size: %d\n", size); // debugging
 
 		if (send(data_socket, &size, sizeof(size), 0) == -1) // sending file size
 		{
@@ -382,7 +380,7 @@ int main()
 		printf("Hello!! Please Authenticate to run server commands\n1. type \"USER\" followed by a space and your username\n2. type \"PASS\" followed by a space and your password\n\n\"QUIT\" to close connection at any moment\nOnce Authenticated\n this is the list of commands :\n\"STOR\" + space + filename |to send a file to the server\n\"RETR\" + space + filename |to download a file from the server\n\"LIST\" to to list all the files under the current server directory\n\"CWD\" + space + directory |to change the current server directory\n\"PWD\" to display the current server directory\nAdd \"!\" before the last three commands to apply them locally\n\n");
 		bzero(buffer, sizeof(buffer));
 		int bytes = recv(network_socket, buffer, sizeof(buffer), 0);
-		printf("%s\n", buffer);
+		printf("%s\n", buffer); //220 service ready for new user
 
 		bzero(buffer, sizeof(buffer));
 	}
@@ -392,14 +390,9 @@ int main()
 		// get input from user
 		fgets(buffer, sizeof(buffer), stdin);
 		buffer[strcspn(buffer, "\n")] = 0; // remove trailing newline char from buffer, fgets does not remove it
-		printf("buffer: %s\n", buffer);	   // debugging
-		if (strcmp(buffer, "exit") == 0)
-		{
-			printf("closing the connection to server \n");
-			close(network_socket);
-			break;
-		}
-		else if (strncmp(buffer, "PWD", 3) == 0) // Handle PWD command
+		//printf("buffer: %s\n", buffer);	   // debugging
+		
+		if (strncmp(buffer, "PWD", 3) == 0) // Handle PWD command
 		{
 			if (send(network_socket, buffer, strlen(buffer), 0) < 0)
 			{
@@ -418,7 +411,7 @@ int main()
 		{
 			// strcat(localPath, cwd);
 			// strcat(localPath, "/../client");
-			printf("Local directory: %s\n", localPath); // Print the client's current working directory
+			printf("%s\n", localPath); // Print the client's current working directory
 		}
 
 		else if (strncmp(buffer, "CWD ", 4) == 0)
@@ -488,7 +481,7 @@ int main()
 		}
 		else if (strncmp(buffer, "RETR ", 5) == 0 || strncmp(buffer, "STOR ", 5) == 0 || strncmp(buffer, "LIST", 4) == 0)
 		{
-			printf("in retr else if\n"); // debugging
+			//printf("in retr else if\n"); // debugging
 			if (portcmd(network_socket, inet_ntoa(client.sin_addr), ntohs(client.sin_port), buffer, addition, localPath))
 			{
 				perror("portcmd fail");
@@ -498,7 +491,7 @@ int main()
 		}
 		else
 		{
-			printf("in final else\n"); // debugging
+			//printf("in final else\n"); // debugging
 			if (send(network_socket, buffer, strlen(buffer), 0) < 0)
 			{
 				perror("send");
