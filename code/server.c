@@ -16,9 +16,11 @@
 
 int main()
 {
-	char *filepath = strdup("../server/bob/images");
-	
-	printf("path main: %s\n", filepath); // debugging
+// char *filepath = strdup("../server");
+
+// printf("path main: %s\n", filepath); // debugging
+#define MAX_PATH 1024
+	char *user_filepaths[FD_SETSIZE];
 
 	int auth[260]; // determines whether a user at fd = i is authenticated or not
 	for (int i = 0; i < sizeof(auth); i++)
@@ -32,6 +34,8 @@ int main()
 	char *token;
 	char row[256];
 	int usersize = 0;
+
+	char *currentUsers[256]; // ZAID
 
 	FILE *fptr;
 	fptr = fopen("../users.csv", "r");
@@ -189,6 +193,7 @@ int main()
 					send(client_sd, "220 Service ready for new user.", 32, 0);
 
 					FD_SET(client_sd, &all_sockets);
+					user_filepaths[client_sd] = strdup("../server"); // Or another appropriate default directory //ZAID
 
 					// update max_socket_so_far
 					if (client_sd > max_socket_so_far)
@@ -201,7 +206,7 @@ int main()
 					int bytes = recv(fd, buffer, sizeof(buffer), 0);
 					if (bytes == 0) // client has closed the connection
 					{
-						printf("connection closed from client side \n");
+						printf("Closed! \n");
 						auth[fd] = 0;
 						close(fd);
 
@@ -215,7 +220,7 @@ int main()
 						substring[i] = buffer[i];
 					}
 					substring[5] = '\0';
-					printf("SUBSTRING: %s\n", substring); // debug
+					//printf("SUBSTRING: %s\n", substring); // debug
 
 					if (!strncmp("USER", substring, 4))
 					{
@@ -267,13 +272,54 @@ int main()
 								if (!strcmp(argument, passwords[found]))
 								{
 									printf("Successful login\n\n");
-									auth[fd] = 1; // client is now authorized
+									auth[fd] = 1;								 // client is now authorized
+									currentUsers[fd] = strdup(usernames[found]); // Zaid
+									// zaid
+									//  Calculate the new size needed for the filepath
+									//  int newSize = snprintf(NULL, 0, "/server/%s", currentUsers[fd]) + 1; // +1 for the null terminator
+
+									// Allocate new memory for filepath
+									// char *newFilepath = (char *)malloc(newSize);
+
+									// if (newFilepath == NULL) {
+									// 	fprintf(stderr, "Memory allocation failed\n");
+									// 	exit(EXIT_FAILURE);
+									// }
+
+									// Format the new filepath with the username
+									// snprintf(newFilepath, newSize, "/server/%s", currentUsers[fd]);
+
+									// Since filepath was previously allocated with strdup, free it before reassigning
+									// free(filepath);
+
+									// Reassign filepath to point to the new string
+									// filepath = newFilepath;
+
+									char cwd[1024];
+									if (getcwd(cwd, sizeof(cwd)) != NULL)
+									{
+										char userDir[1024];
+										// Concatenate the cwd, the relative path to server directory, and the username
+										// snprintf(userDir, sizeof(userDir), "%s/../server/%s", cwd, currentUsers[fd]);
+										// user_filepaths[fd] = userDir;
+										char *newPath = (char *)malloc(MAX_PATH);
+										if (newPath)
+										{
+											snprintf(newPath, MAX_PATH, "%s/../server/%s", cwd, currentUsers[fd]);
+											user_filepaths[fd] = newPath;
+										}
+									}
+
+									// Now you can use filepath
+									//printf("%s\n", user_filepaths[fd]); //debug purposes
+
 									send(fd, "230 User logged in, proceed.", 29, 0);
 								}
 								else
 								{
 									auth[fd] = 0;						   // client is not authorized
 									send(fd, "530 Not logged in.", 38, 0); // password content wrong
+									printf("Incorrect password\n");
 								}
 							}
 							else
@@ -288,11 +334,82 @@ int main()
 							send(fd, "530 Not logged in.", 19, 0); // user not found
 						}
 					}
+
+					else if (strncmp("CWD", buffer, 3) == 0)
+					{
+						// Code to change directory, now updates user_filepaths[fd]
+						char dirPath[1024];
+						sscanf(buffer + 4, "%s", dirPath);
+						// Allocate new memory with enough space for the updated path
+						char *newPath = malloc(MAX_PATH);
+						if (newPath)
+						{
+							snprintf(newPath, MAX_PATH, "%s/%s", user_filepaths[fd], dirPath);
+							free(user_filepaths[fd]);	  // Free the old path
+							user_filepaths[fd] = newPath; // Update to the new path
+							// Send success response...
+							char response[2048]; // Ensure the buffer is large enough for the response
+							snprintf(response, sizeof(response), "200 directory changed to %s", user_filepaths[fd]);
+							send(fd, response, strlen(response), 0);
+						}
+					}
+					else if (strncmp("PWD", buffer, 3) == 0)
+					{
+						if (auth[fd])
+						{ // Ensure the client is authenticated
+							if (currentUsers[fd] != NULL)
+							{
+								// char userDir[1024];
+								// // Adjust the directory path as per your server's directory structure
+								// snprintf(userDir, sizeof(userDir), "/server/%s", currentUsers[fd]);
+								// char response[1060];
+								// snprintf(response, sizeof(response), "257 \"%s\" is the current directory.", userDir);
+								// send(fd, response, strlen(response), 0);
+								char response[3000];
+								snprintf(response, sizeof(response), "257 \"%s\" is the current directory.", user_filepaths[fd]);
+								// Assuming you're sending response to a client or printing it
+								//printf("%s\n", response); //debugging
+								send(fd, response, strlen(response), 0);
+							}
+							else
+							{
+								send(fd, "550 Could not retrieve user directory.", 38, 0);
+							}
+						}
+						else
+						{
+							send(fd, "530 Not logged in.", 19, 0);
+						}
+					}
+
 					else if (!strcmp("PASS ", substring))
 					{
 						auth[fd] = 0;						   // client is not authorized
 						send(fd, "530 Not logged in.", 19, 0); // sent PASS before USER
 					}
+					else if (strncmp("QUIT", buffer, 4) == 0)
+					{
+						// Always allow QUIT, whether authenticated or not
+						send(fd, "221 Service closing control connection.", 40, 0);
+						close(fd); // Close the client socket
+
+						if (currentUsers[fd] != NULL)
+						{ // Free memory if a username was assigned
+							// free(currentUsers[fd]);
+							currentUsers[fd] = NULL;
+						}
+
+						if (user_filepaths[fd] != NULL)
+						{ // Also free the dynamically allocated user filepath
+							// free(user_filepaths[fd]);
+							user_filepaths[fd] = NULL;
+						}
+
+						FD_CLR(fd, &all_sockets); // Remove from the master set
+						auth[fd] = 0;			  // Mark as not authenticated
+						printf("Closed! \n");
+					}
+
 					else if (!strncmp("PORT", substring, 4))
 					{
 						if (auth[fd])
@@ -336,11 +453,14 @@ int main()
 
 							send(fd, "150 File status okay; about to open data connection", 52, 0);
 
+							printf("Connecting to Client Transfer Socket... \n");
+
 							int client_socket = accept(
 								data_socket, (struct sockaddr *)&client_address,
 								&addr_size);
 
-							printf("after accept\n"); // debugging
+							printf("Connection Successful\n");
+							//printf("after accept\n"); // debugging
 
 							pid_t pid = fork();
 							if (pid < 0)
@@ -355,13 +475,13 @@ int main()
 								int bytes = recv(client_socket, buffer, sizeof(buffer), 0); // receive actual command after port
 								if (bytes == 0)												// client has closed the connection
 								{
-									printf("connection closed from client side \n");
+									printf("Closed! \n");
 									auth[fd] = 0;
 									close(fd);
 
 									FD_CLR(fd, &all_sockets);
 								}
-								printf("buffer: %s\n", buffer); // debugging
+								//printf("buffer: %s\n", buffer); // debugging
 
 								token = strtok(buffer, " ");
 								if (token == NULL)
@@ -372,11 +492,11 @@ int main()
 								char *arg1 = token;
 								char *filename;
 
-								printf("arg1: %s\n", arg1); // debugging
+								//printf("arg1: %s\n", arg1); // debugging
 
 								if (strncmp("STOR", arg1, 5) == 0 || strncmp("RETR", arg1, 5) == 0)
 								{
-									printf("entered stor and retr if\n"); // debugging
+									//printf("entered stor and retr if\n"); // debugging
 									token = strtok(NULL, " ");
 									if (token == NULL)
 									{
@@ -385,8 +505,8 @@ int main()
 									}
 									filename = token;
 									char openfile[256];
-									sprintf(openfile, "%s/%s", filepath, filename);
-									printf("arg1: %s\n", arg1); // debugging
+									sprintf(openfile, "%s/%s", user_filepaths[fd], filename);
+									//printf("arg1: %s\n", arg1); // debugging
 
 									if (strncmp("STOR", arg1, 5) == 0)
 									{
@@ -404,7 +524,7 @@ int main()
 										}
 										else
 										{
-											printf("found: %s end\n", buffer); // debugging
+											//printf("found: %s end\n", buffer); // debugging
 										}
 
 										FILE *fptr = fopen(openfile, "w");
@@ -416,14 +536,14 @@ int main()
 
 										int size = 0;
 										recv(client_socket, &size, sizeof(size), 0); // receive size
-										printf("size: %d\n", size);					 // debugging
+										//printf("size: %d\n", size);					 // debugging
 
 										while (n > 0)
 										{
 											bzero(buffer, sizeof(buffer));
 											n = recv(client_socket, buffer, sizeof(buffer), 0);
 
-											printf("%s\n", buffer); // debugging
+											//printf("%s\n", buffer); // debugging
 											fwrite(buffer, 1, n, fptr);
 										}
 
@@ -432,7 +552,7 @@ int main()
 									}
 									else
 									{
-										printf("entered retr else\n"); // debugging
+										//printf("entered retr else\n"); // debugging
 										FILE *fptr;
 										fptr = fopen(openfile, "rb");
 										if (fptr == NULL)
@@ -453,7 +573,7 @@ int main()
 										stat(openfile, &st);
 										int size = st.st_size;
 
-										printf("size: %d\n", size); // debugging
+										//printf("size: %d\n", size); // debugging
 
 										// if (send(client_socket, &size, sizeof(size), 0) == -1) // sending file size
 										// {
@@ -501,25 +621,32 @@ int main()
 
 										// printf("Exited while\n"); // debugging
 									}
-									printf("before transfer completed\n");				  // debugging
-									if (send(fd, "226 Transfer completed.", 24, 0) == -1) // replace sizeofdata with n
+									//printf("before transfer completed\n");				  // debugging
+									if (send(fd, "226 Transfer complete.", 24, 0) == -1) // replace sizeofdata with n
 									{
 										perror("[-] Error in sending data");
 										exit(1);
 									}
+									else
+									{
+										printf("226 Transfer complete.\n");
+									}
 								}
 								else if (strncmp("LIST", arg1, 5) == 0)
 								{
+									printf("Listing directory\n");
+									//printf("HELLOO%s\n", user_filepaths[fd]);
 									DIR *d;
 									struct dirent *dir;
-									d = opendir(filepath);
+									d = opendir(user_filepaths[fd]);
 									if (d)
 									{
+										//printf("I AM HERE"); //debugging
 										dir = readdir(d); // to purge the '.' dir
 										dir = readdir(d); // to purge the '..' dir
 										while ((dir = readdir(d)) != NULL)
 										{
-											printf("%s\n", dir->d_name);
+											//printf("%s\n", dir->d_name); //debugging
 											if (send(client_socket, dir->d_name, 256, 0) == -1) // replace sizeofdata with n
 											{
 												perror("[-] Error in sending data");
@@ -535,8 +662,13 @@ int main()
 										perror("[-] Error in sending data");
 										exit(1);
 									}
+									else
+									{
+										printf("226 Transfer complete.\n");
+									}
 									return (0);
 								}
+
 								// Close unnecessary sockets
 								close(server_socket);
 

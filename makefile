@@ -1,10 +1,10 @@
-all: client/client2 server/server2
+all: client/client server/server
 
-client/client2: ./code/client2.c
-	gcc code/client2.c -o client/client2
+client/client: ./code/client.c
+	gcc code/client.c -o client/client
 
-server/server2: ./code/server2.c
-	gcc code/server2.c -o server/server2
+server/server: ./code/server.c
+	gcc code/server.c -o server/server
 
 clean:
-	rm -rf client/client2 server/server2 *.
+	rm -rf client/client server/server *.
